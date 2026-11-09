@@ -1,0 +1,29 @@
+{
+  "seed": 42,
+  "total_original_train": 1545,
+  "train_split_size": 1295,
+  "val_split_size": 250,
+  "val_seen_app_size": 164,
+  "val_unseen_app_size": 86,
+  "held_out_zero_shot_apps": [
+    "bike_rental",
+    "library",
+    "robot_vacuum"
+  ],
+  "train_categories": {
+    "multi_step_write": 729,
+    "read_only": 107,
+    "direct_write": 172,
+    "out_of_scope": 99,
+    "read_then_ask_missing_info": 135,
+    "ask_missing_info_direct": 53
+  },
+  "val_categories": {
+    "multi_step_write": 152,
+    "direct_write": 40,
+    "read_then_ask_missing_info": 22,
+    "out_of_scope": 12,
+    "read_only": 17,
+    "ask_missing_info_direct": 7
+  }
+}
