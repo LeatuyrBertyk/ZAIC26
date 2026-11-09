@@ -186,8 +186,23 @@ def main():
                 elapsed = time.perf_counter() - t0
                 print(f"[ASR-Only {idx}/{len(samples)}] cached={len(asr.cache)} wavs | elapsed={elapsed:.1f}s")
         asr.save_cache()
+        asr.unload()
         print(f"ASR-only complete! Saved {len(asr.cache)} transcripts to {cache_path}")
         return
+
+    # Pre-transcribe any uncached wavs and unload ASR models BEFORE loading the 4B LLM to avoid GPU OOM!
+    if args.asr_mode not in ("oracle", "noop"):
+        cache_before = len(asr.cache)
+        for sample in samples:
+            if sample["id"] not in done_ids:
+                try:
+                    asr.transcribe_sample(sample, split_dir, history_dual=args.history_dual_asr)
+                except Exception as e:
+                    print(f"[ASR PRE-PASS ERROR] {sample['id']}: {e}")
+        if len(asr.cache) != cache_before or asr._primary is not None or asr._secondary is not None:
+            asr.save_cache()
+            asr.unload()
+            print(f"[ASR Pre-pass] Cached {len(asr.cache)} wavs and freed ASR GPU memory before loading LLM.")
 
     llm = build_llm_backend(args)
     agent = LifeMateAgent(llm=llm, catalog=catalog, max_steps=args.max_steps, max_new_tokens=args.max_new_tokens)

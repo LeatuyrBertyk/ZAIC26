@@ -221,6 +221,20 @@ class ASREngine:
             with open(self.cache_path, "w", encoding="utf-8") as f:
                 json.dump(self.cache, f, ensure_ascii=False, indent=2)
 
+    def unload(self):
+        """Free GPU memory used by ASR models before loading the 4B LLM."""
+        if self._primary is not None or self._secondary is not None:
+            import gc
+            self._primary = None
+            self._secondary = None
+            gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+
     def transcribe_wav(
         self,
         wav_path: Path,
