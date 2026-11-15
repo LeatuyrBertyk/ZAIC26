@@ -1,15 +1,20 @@
-# Core inference dependencies (SLM < 6B budget, Python 3.10+)
-torch>=2.4.0
+--extra-index-url https://download.pytorch.org/whl/cu128
+# Core inference & training dependencies for ZAC 2026 LifeMate (SLM < 6B budget, RTX 5090 / CUDA 13.2 compatible)
+torch>=2.6.0
 transformers>=4.51.0
 accelerate>=0.34.0
-faster-whisper>=1.1.0
-# Optional high-speed GPU serving on Linux / Docker / Colab / Kaggle
-vllm>=0.8.0; sys_platform == "linux"
-openai>=1.50.0
-# Fine-tuning dependencies (Steps 3 & 4)
-peft>=0.13.0
-datasets>=3.0.0
-trl>=0.12.0
-jiwer>=3.0.4
+safetensors>=0.4.5
+sentencepiece>=0.2.0
+protobuf>=4.25.0
 soundfile>=0.12.1
 librosa>=0.10.2
+scipy>=1.11.0
+numpy>=1.26.0
+# Required by BTC for predict_notebook.ipynb timing evaluation
+jupyterlab>=4.0.0
+ipykernel>=6.29.0
+# Fine-tuning & evaluation utilities
+peft>=0.13.0
+datasets>=3.0.0
+jiwer>=3.0.4
+faster-whisper>=1.1.0

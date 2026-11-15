@@ -30,6 +30,18 @@ HALLUCINATION_SUBSTRINGS = (
 
 _REPEAT_WORD_RE = re.compile(r"\b(\w+)(?:\s+\1){4,}\b", re.IGNORECASE | re.UNICODE)
 _REPEAT_PHRASE_RE = re.compile(r"\b(\w+\s+\w+)(?:\s+\1){3,}\b", re.IGNORECASE | re.UNICODE)
+_SPOKEN_EMAIL_RE = re.compile(
+    r"\b([a-zA-Z0-9._-]+)\s*,?\s*a\s+còng\s+([a-zA-Z0-9_-]+)\s+chấm\s+(test|xếp|tết|com|vn|org|net|edu|gov|io)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_EMAIL_LOCAL_FIX = {
+    "lego": "legal",
+    "logitech": "logistics",
+}
+_EMAIL_TLD_FIX = {
+    "xếp": "test",
+    "tết": "test",
+}
 
 
 def is_corrupted_asr(text: str | None) -> bool:
@@ -44,8 +56,17 @@ def is_corrupted_asr(text: str | None) -> bool:
     return False
 
 
+def _replace_spoken_email(m: re.Match) -> str:
+    local = m.group(1).strip().lower()
+    local = _EMAIL_LOCAL_FIX.get(local, local)
+    domain = m.group(2).strip().lower()
+    tld = m.group(3).strip().lower()
+    tld = _EMAIL_TLD_FIX.get(tld, tld)
+    return f"{local}@{domain}.{tld}"
+
+
 def clean_asr_text(text: str | None) -> str:
-    """Remove known Whisper YouTube outro hallucinations and collapse word repetition loops."""
+    """Remove known Whisper YouTube outro hallucinations, normalize spoken email addresses, and collapse repetition loops."""
     if not text:
         return ""
     s = text.strip()
@@ -55,6 +76,10 @@ def clean_asr_text(text: str | None) -> str:
             return ""
     s = _REPEAT_WORD_RE.sub(r"\1", s)
     s = _REPEAT_PHRASE_RE.sub(r"\1", s)
+    s = re.sub(r"\bphòng\s+ngăn(?=\s+a\s+còng\b)", "finance", s, flags=re.IGNORECASE)
+    s = _SPOKEN_EMAIL_RE.sub(_replace_spoken_email, s)
+    s = re.sub(r"\bchấp\s+in\s+(?:chiếc|trước)\b", "check-in trước", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bsân\s+(?:ba|bay)\s+nội\s+(?:ba|bài)\b", "sân bay Nội Bài", s, flags=re.IGNORECASE)
     return " ".join(s.split()).strip()
 
 
@@ -129,7 +154,7 @@ class ASREngine:
         compute_type: str = "float16",
         cache_path: Path | None = None,
         base_cache_path: Path | None = None,
-        max_history_user_audios: int = 8,
+        max_history_user_audios: int = 30,
         beam_size: int = 5,
     ):
         self.mode = mode
@@ -215,11 +240,21 @@ class ASREngine:
                 torch_dtype=dtype,
             )
 
+    def preload(self):
+        """Eagerly load primary and secondary ASR models into GPU memory so load time is measured upfront."""
+        self._ensure_primary_loaded()
+        if self.secondary_model_name:
+            self._ensure_secondary_loaded()
+        return self
+
     def save_cache(self):
         if self.cache_path:
-            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.cache_path, "w", encoding="utf-8") as f:
-                json.dump(self.cache, f, ensure_ascii=False, indent=2)
+            try:
+                self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.cache_path, "w", encoding="utf-8") as f:
+                    json.dump(self.cache, f, ensure_ascii=False, indent=2)
+            except PermissionError as e:
+                print(f"[ASR Warning] Read-only cache path ({e}), skipping cache write.")
 
     def unload(self):
         """Free GPU memory used by ASR models before loading the 4B LLM."""
@@ -257,10 +292,15 @@ class ASREngine:
         )
 
         if not need_primary and not need_secondary:
+            if existing.get("primary"):
+                existing["primary"] = clean_asr_text(existing["primary"])
+            if existing.get("secondary"):
+                existing["secondary"] = clean_asr_text(existing["secondary"])
             if cache_key in self.base_cache and not existing.get("base"):
                 b_txt = clean_asr_text((self.base_cache.get(cache_key) or {}).get("primary"))
                 if b_txt and not is_corrupted_asr(b_txt):
                     existing = {**existing, "base": b_txt}
+            self.cache[cache_key] = existing
             return existing
 
         if need_primary:

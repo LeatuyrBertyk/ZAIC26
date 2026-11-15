@@ -16,6 +16,7 @@ import json
 import os
 import random
 import sys
+import time
 from pathlib import Path
 
 import torch
@@ -327,17 +328,29 @@ def main():
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    t_train_start = time.perf_counter()
+
     class SaveStepAndEpochAdapterCallback(TrainerCallback):
         def on_step_end(self, _args, state, _control, **kwargs):
+            if state.global_step == 1 or state.global_step % 5 == 0 or state.global_step == state.max_steps:
+                elapsed_m = (time.perf_counter() - t_train_start) / 60.0
+                rate = elapsed_m / max(1, state.global_step)
+                rem_m = rate * max(0, state.max_steps - state.global_step)
+                print(
+                    f"⏱ [Tiến độ Epoch {state.epoch:.2f}/{args.epochs:.1f}] "
+                    f"Bước {state.global_step}/{state.max_steps} ({100.0 * state.global_step / max(1, state.max_steps):.1f}%) | "
+                    f"Đã chạy: {elapsed_m:.1f} phút | Còn khoảng: {rem_m:.1f} phút",
+                    flush=True,
+                )
             if args.save_steps > 0 and state.global_step > 0 and state.global_step % args.save_steps == 0:
-                print(f"[PureLoRA Checkpoint] Saving step {state.global_step} checkpoint to {out_dir}...")
+                print(f"💾 [PureLoRA Checkpoint] Lưu bước {state.global_step}/{state.max_steps} (Epoch {state.epoch:.2f}) vào {out_dir}...", flush=True)
                 save_pure_lora(model, out_dir, args.base_model, args.lora_r, args.lora_alpha, DEFAULT_TARGET_MODULES)
                 tokenizer.save_pretrained(str(out_dir))
 
         def on_epoch_end(self, _args, state, _control, **kwargs):
             ep_tag = int(round(state.epoch or 1))
             ep_dir = out_dir / f"epoch_{ep_tag}"
-            print(f"[PureLoRA Checkpoint] Saving epoch {ep_tag} adapter to {ep_dir} and {out_dir}...")
+            print(f"[PureLoRA Checkpoint] Saving epoch {ep_tag} adapter to {ep_dir} and {out_dir}...", flush=True)
             save_pure_lora(model, ep_dir, args.base_model, args.lora_r, args.lora_alpha, DEFAULT_TARGET_MODULES)
             tokenizer.save_pretrained(str(ep_dir))
             save_pure_lora(model, out_dir, args.base_model, args.lora_r, args.lora_alpha, DEFAULT_TARGET_MODULES)
@@ -350,11 +363,11 @@ def main():
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
-        warmup_steps=35,
+        warmup_steps=15,
         weight_decay=0.01,
         bf16=use_bf16,
         fp16=(not use_bf16 and torch.cuda.is_available()),
-        logging_steps=25,
+        logging_steps=5,
         save_strategy="no",
         remove_unused_columns=False,
         label_names=["labels", "loss_weights"],

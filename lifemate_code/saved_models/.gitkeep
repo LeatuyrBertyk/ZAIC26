@@ -1,0 +1,5 @@
+# Place offline models here via: python3 scripts/prepare_docker_models.py
+# - saved_models/asr_turbo_ft_v1/
+# - saved_models/asr_pho_ft_v1/
+# - saved_models/qwen3_4b_sft_merged/
+

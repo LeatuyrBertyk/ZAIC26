@@ -773,6 +773,9 @@ def main():
     ap.add_argument("--out", default=str(WORKSPACE / "outputs" / "sft" / "sft_train_full.jsonl"), help="Output SFT JSONL")
     ap.add_argument("--synth-repeat", type=int, default=8, help="Repeat factor for unseen-app synthetic trajectories")
     ap.add_argument("--include-all-sources", action="store_true", help="Gộp thêm Nguồn A (history), Nguồn B (Simulator) và Nguồn C (LLM) nếu có")
+    ap.add_argument("--include-source-b", action="store_true", help="Add Simulator-verified unseen-app trajectories (source B)")
+    ap.add_argument("--source-b-count", type=int, default=240)
+    ap.add_argument("--v8-focused", action="store_true", help="Warm-start set: val_split + 300 multi-step replay (instead of all train)")
     ap.add_argument("--exclude-val-jsonl", default=None, help="Optional holdout validation JSONL whose IDs (and history turns) are excluded from SFT")
     ap.add_argument("--asr-cache", default=None, help="Optional JSON cache of real ASR transcripts for training augmentation")
     ap.add_argument("--recovery-count", type=int, default=240, help="Number of Recovery Training samples (Trick #2.2)")
@@ -800,6 +803,17 @@ def main():
         for line in open(args.input_jsonl, encoding="utf-8")
         if line.strip() and json.loads(line)["id"] not in excluded_ids
     ]
+    if args.v8_focused:
+        val_path = WORKSPACE / "outputs" / "splits" / "val_split.jsonl"
+        val_ids = {json.loads(l)["id"] for l in open(val_path, encoding="utf-8") if l.strip()} if val_path.is_file() else set()
+        held = [it for it in train_items if it["id"] in val_ids]
+        replay = [
+            it for it in train_items
+            if it["id"] not in val_ids and (len(it.get("history") or []) >= 2 or len(it["label"]["tool_calls"]) >= 2)
+        ]
+        rng.shuffle(replay)
+        train_items = held + replay[:300]
+        print(f"[v8-focused] {len(held)} val_split + {len(train_items) - len(held)} replay samples")
     records = [sample_to_sft_record(item, train_cat, rng, asr_cache=asr_cache) for item in train_items]
 
     if args.recovery_count > 0:
@@ -815,6 +829,14 @@ def main():
             records.append(rec)
 
     extra_counts = {}
+    if args.include_source_b and not args.include_all_sources:
+        from gen_data_source_b import build_random_sample
+
+        tools_map = {a["id"]: [t["name"] for t in a.get("tools", [])] for a in pub_cat.get("apps", [])}
+        b_rng = random.Random(args.seed + 2026)
+        b_items = [build_random_sample(i, b_rng, pub_cat, tools_map) for i in range(1, args.source_b_count + 1)]
+        records.extend(sample_to_sft_record(it, pub_cat, rng) for it in b_items)
+        extra_counts["source_b_simulator"] = len(b_items)
     if args.include_all_sources:
         sft_dir = WORKSPACE / "outputs" / "sft"
         src_a = sft_dir / "source_a_history.jsonl"

@@ -213,7 +213,9 @@ def main():
     file_mode = "a" if (args.resume and done_ids) else "w"
 
     timing_f = open(args.timing_out, "a", encoding="utf-8") if args.timing_out else None
-    with open(out_path, file_mode, encoding="utf-8") as fout:
+    if file_mode == "w":
+        open(out_path, "w", encoding="utf-8").close()
+    if True:
         for idx, sample in enumerate(samples, 1):
             qid = sample["id"]
             if qid in done_ids:
@@ -247,8 +249,10 @@ def main():
                 "tool_calls": env.get_tool_calls(),
                 "state_hash": env.get_state_hash(),
             }
-            fout.write(json.dumps(row, ensure_ascii=False) + "\n")
-            fout.flush()
+            with open(out_path, "a", encoding="utf-8") as fout:  # close each line => Drive syncs immediately
+                fout.write(json.dumps(row, ensure_ascii=False) + "\n")
+                fout.flush()
+                os.fsync(fout.fileno())
             processed += 1
 
             if processed % 25 == 0 or idx == len(samples):

@@ -78,6 +78,13 @@ _EN_ROOM_MAP = {
     "balcony": "ban công",
 }
 
+_IATA_TO_CITY = {
+    "SGN": "TP.HCM", "HAN": "Hà Nội", "DAD": "Đà Nẵng", "HUI": "Huế", "VCA": "Cần Thơ", "DLI": "Đà Lạt",
+    "UIH": "Quy Nhơn", "PQC": "Phú Quốc", "CXR": "Nha Trang", "VDH": "Đồng Hới", "HPH": "Hải Phòng", "VII": "Vinh",
+}
+_TRANSLATE_WRAP_RE = re.compile(r"\s+(?:sang|ra|qua)\s+tiếng\s+\S+(?:\s+(?:nhé|nha|ạ))?[.!?]*$", re.IGNORECASE)
+_TRANSLATE_CAU_RE = re.compile(r"^câu\s+(.+?)\s+(?:ấy|đó|đấy|này)[.!?]*$", re.IGNORECASE)
+
 # Read tools that are almost always called as step-1 lookup before a [WRITE] or `sys.ask_missing_info`
 ACTION_PREREQ_READ_TOOLS = {
     "contacts.search",
@@ -262,6 +269,9 @@ class TransformersLLMBackend(BaseLLMBackend):
 
             pure_cfg = json.load(open(pure_cfg_path, encoding="utf-8"))
             base_path = pure_cfg.get("base_model_name_or_path", "Qwen/Qwen3-4B-Instruct-2507")
+            local_base = Path(model_name_or_path).resolve().parent / "qwen3_4b_base"
+            if not Path(base_path).exists() and local_base.is_dir():
+                base_path = str(local_base)
             print(f"[LLM] Loading base model {base_path} + merging PureLoRA adapter from {model_name_or_path}...")
             self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, trust_remote_code=True)
             base_model = _load_lm(base_path)
@@ -283,6 +293,8 @@ class TransformersLLMBackend(BaseLLMBackend):
             self.model = _load_lm(model_name_or_path)
             self.model.to(self.device)
 
+        if hasattr(self.model, "config") and hasattr(self.model.config, "max_position_embeddings"):
+            self.model.config.max_position_embeddings = min(int(self.model.config.max_position_embeddings), 16384)
         self.model.eval()
 
     def _apply_template(self, messages: list[dict], tools: list[dict]) -> str:
@@ -474,6 +486,8 @@ class MultiLoRAEnsembleBackend(BaseLLMBackend):
 
         inject_pure_lora(self.model, target_modules=target_modules, r=r, alpha=alpha, dropout=0.0)
         self.model.to(self.device)
+        if hasattr(self.model, "config") and hasattr(self.model.config, "max_position_embeddings"):
+            self.model.config.max_position_embeddings = min(int(self.model.config.max_position_embeddings), 16384)
         self.model.eval()
 
         self.states = [load_pure_lora_state(Path(p), device=self.device) for p in adapter_paths]
@@ -682,6 +696,19 @@ class LifeMateAgent:
         if name == "smart_home.climate_set" and args.get("power") == "off" and "mode" not in args and "power" not in props:
             args["mode"] = "off"
             args.pop("power", None)
+
+        # IATA airport codes are only understood by `flights`; other travel/weather tools want city names
+        if not name.startswith("flights."):
+            for key in ("origin", "destination", "location"):
+                code = args.get(key)
+                if isinstance(code, str) and code.strip().upper() in _IATA_TO_CITY:
+                    args[key] = _IATA_TO_CITY[code.strip().upper()]
+
+        # translator: the dictionary lookup needs the bare sentence, not the spoken command wrapper
+        if name == "translator.translate" and isinstance(args.get("text"), str):
+            text = _TRANSLATE_WRAP_RE.sub("", args["text"].strip())
+            m = _TRANSLATE_CAU_RE.match(text)
+            args["text"] = (m.group(1) if m else text).strip() or args["text"]
 
         out = {}
         for k, v in args.items():

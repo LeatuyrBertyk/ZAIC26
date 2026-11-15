@@ -20,15 +20,19 @@ WEEKDAY_VI = {
 # Explicit mapping from colloquial Vietnamese expressions in TRAIN to exact App IDs & key execution rules
 APP_COLLOQUIAL_MAP: dict[str, str] = {
     "ewallet": '"bên ví", "lấy ví", "chuyển ví", "ví điện tử", "nạp tiền điện thoại", "quét QR quán" -> `ewallet` (`topup_mobile` dùng `phone`; `transfer` dùng `contact_id`; `pay_qr` dùng `merchant_id` từ `food_delivery.list_restaurants`)',
-    "banking": '"bên ngân hàng", "chuyển khoản", "tài khoản thanh toán", "mở/gửi tiết kiệm" -> `banking` (`transfer` cần `from_account_id` từ `get_balance` + `beneficiary_id` từ `list_beneficiaries`)',
+    "banking": '"bên ngân hàng", "chuyển khoản", "tài khoản thanh toán", "mở/gửi tiết kiệm" -> `banking` (`transfer` cần `from_account_id` từ `get_balance` + `beneficiary_id` từ `list_beneficiaries`; chú ý so sánh kỹ `balance` của Tài khoản thanh toán `acc_01` với số tiền cần chuyển: nếu `acc_01` ĐỦ tiền thì dùng `acc_01`, chỉ lấy từ Tài khoản tiết kiệm `acc_02` khi `acc_01` thực sự thiếu hoặc dưới ngưỡng)',
     "bill_payment": '"đóng tiền điện/nước/mạng/internet/truyền hình", "hóa đơn", "bật tự trả" -> `bill_payment` (`list_bills` lấy `bill_id` trước khi `pay`; kiểm tra `ewallet.get_balance` nếu có điều kiện "ví không đủ thì trừ ngân hàng")',
+    "gold_price": '"giá vàng SJC/nhẫn", "nếu vàng SJC bán ra vượt..." -> `gold_price.get_price` (BẮT BUỘC gọi trước tiên để kiểm tra giá vàng khi câu nói có điều kiện về giá vàng)',
+    "fuel_price": '"giá xăng/dầu", "nếu xăng RON95..." -> `fuel_price.get_price`',
+    "weather": '"trời mưa", "dự báo thời tiết", "nếu mai mưa/nắng..." -> `weather.get_forecast` / `weather.get_current` (kiểm tra `rain: True/False` trước khi quyết định hành động)',
+    "flights": '"vé máy bay", "chuyến RV.../JX.../SA...", "ra sân bay Nội Bài/Tân Sơn Nhất/Đà Nẵng", "check-in/chấp in" -> `flights` (`search` -> `book`; `my_bookings` -> `check_in` / `cancel`; truyền tên thành phố tiếng Việt như "Hà Nội", "Đà Nẵng", "Đà Lạt", "Quy Nhơn", "TP.HCM" hoặc mã sân bay)',
     "chat_ott": '"nhắn Zalo", "nhắn vào nhóm", "gửi vị trí qua chat" -> `chat_ott` (luôn gọi `chat_ott.list_chats` lấy `chat_id`, KHÔNG dùng `contact_id`)',
     "sms": '"nhắn SMS", "gửi tin nhắn thường" -> `sms` (dùng `contact_id` từ `contacts.search`)',
     "contacts": '"danh bạ", "sửa số/email liên hệ" -> `contacts` (`contacts.search` trước khi `update`/gửi; nếu tìm tên riêng ra rỗng do lỗi nghe ASR, hãy thử tìm theo chức danh/quan hệ hoặc `{}`)',
-    "smart_home": '"đèn", "điều hòa/máy lạnh", "quạt", "rèm", "bình nóng lạnh" -> `smart_home` (gọi `smart_home.get_status({})` lấy đúng `device_id` trước khi `light_set`/`climate_set`/`fan_set`)',
+    "smart_home": '"đèn", "điều hòa/máy lạnh", "quạt", "rèm", "bình nóng lạnh" -> `smart_home` (ưu tiên gọi `smart_home.get_status({})` không truyền `room` để thấy toàn bộ thiết bị và lấy đúng `device_id`)',
     "robot_vacuum": '"con robot", "nó dọn", "hút bụi", "lau nhà" -> `robot_vacuum` (luôn gọi `robot_vacuum.get_status({})` trước khi gọi `robot_vacuum.start(rooms=[...])`)',
     "home_automation": '"cài hẹn giờ tự bật/tắt hằng ngày" -> `home_automation.create_rule` (cần `device_id` từ `smart_home.get_status`)',
-    "home_security": '"camera", "cảnh báo an ninh/gara" -> `home_security` (`list_alerts` / `get_camera`)',
+    "home_security": '"camera", "cảnh báo an ninh/gara", "bật chống trộm" -> `home_security` (`list_alerts` / `get_camera` / `set_mode`)',
     "door_lock": '"khóa cửa", "mở khóa cửa/kho/gara" -> `door_lock` (`list_locks` lấy `lock_id` -> `set_lock`)',
     "appliances": '"máy rửa bát", "máy giặt", "máy sấy" -> `appliances` (gọi `appliances.list({})` không truyền filter -> `start_cycle`)',
     "household_chores": '"giao việc nhà", "phân công cất bát/dọn dẹp" -> `household_chores` (`list_chores({})` -> `assign`)',
@@ -37,10 +41,10 @@ APP_COLLOQUIAL_MAP: dict[str, str] = {
     "tasks": '"thêm việc cần làm", "danh sách việc", "hạn (due)" -> `tasks` (`add` / `list` -> `complete`)',
     "alarm": '"đặt báo thức", "gọi dậy" -> `alarm` (`create` / `list` -> `update`/`delete`)',
     "video_meeting": '"phòng họp trực tuyến", "mở phòng họp online" -> `video_meeting.create`',
-    "email": '"soạn thư nháp", "gửi mail", "trả lời mail" -> `email` (`create_draft` khi dặn "để nháp/đừng gửi vội"; `send` khi gửi luôn)',
-    "shopping_list": '"danh sách mua sắm/đi chợ", "đánh dấu đã mua" -> `shopping_list` (`get` -> `check` / `add`)',
-    "grocery": '"đặt đi chợ online", "mua rau/thịt/trái cây/sữa giao về" -> `grocery` (`search` -> `add_to_cart` -> `checkout`; chỉ truyền `address` nếu câu nói nêu rõ địa chỉ)',
-    "ecommerce": '"mua trên sàn", "đặt hàng online", "trả hàng/hủy đơn" -> `ecommerce` (`search` -> `add_to_cart` -> `checkout`; `order_status` -> `cancel_order` [đơn placed] hoặc `request_return` [đơn delivered])',
+    "email": '"soạn thư nháp", "gửi mail", "trả lời mail" -> `email` (`create_draft` khi dặn "để nháp/đừng gửi vội/đọc lại rồi mới gửi"; `send` khi gửi luôn)',
+    "shopping_list": '"danh sách mua sắm/đi chợ", "đánh dấu đã mua" -> `shopping_list` (`get` -> `check` / `add` / `remove`)',
+    "grocery": '"đặt đi chợ online", "mua nguyên liệu thực phẩm/rau/thịt/trái cây/sữa/kem tươi" -> `grocery` (`search` -> `add_to_cart` -> `checkout`; chỉ dùng cho thực phẩm tươi sống/nguyên liệu nấu ăn, KHÔNG dùng cho món ăn nấu sẵn của quán hay đồ điện tử/gia dụng)',
+    "ecommerce": '"mua trên sàn", "đặt hàng online đồ điện tử/gia dụng (bàn phím, chuột, cốc/bình giữ nhiệt, đèn bàn, ấm siêu tốc...)", "trả hàng/hủy đơn" -> `ecommerce` (`search` -> `add_to_cart` -> `checkout`; `order_status` -> `cancel_order` [đơn placed] hoặc `request_return` [đơn delivered])',
     "pantry": '"tủ bếp", "còn nguyên liệu gì", "trừ tồn kho tủ bếp" -> `pantry` (`list_items` -> `consume`)',
     "recipes": '"công thức nấu", "cách làm món" -> `recipes` (`search` -> `get`/`save`)',
     "loyalty": '"đổi điểm", "xem điểm", "voucher/ưu đãi" -> `loyalty` (`get_points` -> `redeem`; `list_vouchers({})`)',
@@ -48,15 +52,15 @@ APP_COLLOQUIAL_MAP: dict[str, str] = {
     "library": '"mượn sách", "giữ sách thư viện" -> `library` (`search` -> `reserve`)',
     "bike_rental": '"giữ/thuê xe đạp", "trạm xe đạp" -> `bike_rental` (`find_bikes` -> `reserve`)',
     "ride_hailing": '"đặt xe đón", "bắt xe 4 chỗ/xe máy" -> `ride_hailing.book`',
-    "food_delivery": '"đặt đồ ăn", "quán ăn", "đơn đồ ăn" -> `food_delivery` (`list_restaurants` -> `get_menu` -> `place_order`)',
+    "food_delivery": '"đặt đồ ăn quán (bún chả, bún bò, phở, cơm tấm, trà sữa, pizza...)", "quán ăn", "đơn đồ ăn" -> `food_delivery` (`list_restaurants` -> `get_menu` -> `place_order`)',
     "maps": '"chỉ đường", "tìm hiệu thuốc/địa điểm quanh...", "chạy xe mất bao lâu" -> `maps` (`get_route` / `search_place`)',
     "parking": '"bãi đỗ xe", "giữ chỗ đỗ xe", "kết thúc phiên đỗ" -> `parking` (`find` -> `reserve`; `list_sessions` -> `end_session`)',
     "public_transit": '"tuyến xe buýt/metro", "chuyến sắp chạy", "nạp thẻ xe" -> `public_transit` (`find_routes` / `next_departures` / `topup_card`)',
     "stocks": '"giá cổ phiếu", "danh mục", "mua/bán cổ phiếu", "cảnh báo giá" -> `stocks` (`get_quote` / `get_portfolio` -> `place_order` / `set_price_alert`)',
-    "event_tickets": '"vé đêm nhạc/concert/hội thảo" -> `event_tickets` (`search` -> `book`)',
-    "train_bus_tickets": '"vé tàu hỏa/xe khách" -> `train_bus_tickets` (`search` -> `book`; `my_bookings` -> `cancel`)',
+    "event_tickets": '"vé đêm nhạc/concert/vở kịch/liên hoan phim/hội thảo/triển lãm" -> `event_tickets` (`search` -> `book`; nếu tên sự kiện có thể bị ASR nghe trại hoặc hỏi chung "có sự kiện gì hay", hãy gọi `event_tickets.search({})` để xem toàn bộ sự kiện)',
+    "train_bus_tickets": '"vé tàu hỏa (SE..., NA...)/xe khách", "ra ga tàu/bến xe" -> `train_bus_tickets` (`search` -> `book`; `my_bookings` -> `cancel`; truyền tên thành phố tiếng Việt như "Hà Nội", "Đà Nẵng", "Huế", "TP.HCM", KHÔNG truyền mã sân bay IATA)',
     "habit_tracker": '"thói quen", "đánh dấu hoàn thành thói quen" -> `habit_tracker` (`list_habits` -> `log`)',
-    "translator": '"dịch câu ... sang tiếng ..." -> `translator.translate` (gọi trước rồi lấy kết quả dịch gửi SMS/chat/email/note)',
+    "translator": '"dịch câu ... sang tiếng ..." -> `translator.translate` (chỉ truyền đúng nội dung câu cần dịch vào `text`, KHÔNG kèm từ "Câu ... ấy" hay "sang tiếng Anh"; sau đó lấy `translation` trả về để lưu `notes.create` / gửi `email`/`sms`/`chat_ott`)',
 }
 
 
@@ -149,6 +153,34 @@ def annotate_tool_result(name: str, result: dict) -> dict:
         res["_time_note"] = (
             f"Thời gian di chuyển: {dur} phút. Nếu cần đặt nhắc nhở/báo thức xuất phát để có mặt lúc H:MM, "
             f"hãy lấy H:MM trừ chính xác {dur} phút (KHÔNG làm tròn phút, VD 16:00 trừ 27 phút = 15:33)."
+        )
+    elif name == "event_tickets.search" and isinstance(res.get("events"), list) and len(res["events"]) == 0:
+        res["_system_note"] = (
+            "CHÚ Ý: Không tìm thấy sự kiện khớp từ khóa vừa tìm (có thể do lỗi nghe ASR hoặc gộp cả tên + địa điểm). "
+            "Hãy gọi ngay event_tickets.search({}) (không truyền query) để xem toàn bộ danh sách sự kiện rồi chọn đúng event_id!"
+        )
+    elif name == "smart_home.get_status" and isinstance(res.get("devices"), list) and len(res["devices"]) == 0:
+        res["_system_note"] = (
+            "CHÚ Ý: Không tìm thấy thiết bị ở phòng vừa lọc (có thể tên phòng bị ASR nghe trại). "
+            "Hãy gọi ngay smart_home.get_status({}) (không truyền room/type) để xem toàn bộ thiết bị trong nhà!"
+        )
+    elif name in ("recipes.search", "ecommerce.search", "grocery.search") and any(
+        isinstance(v, list) and len(v) == 0 for k, v in res.items() if not k.startswith("_")
+    ):
+        res["_system_note"] = (
+            "CHÚ Ý: Kết quả tìm kiếm rỗng! (1) Nếu từ khóa bị ASR nghe nhầm âm (VD 'xúc ví đỏ' -> 'bí đỏ', 'Slim Cây Bảy Lăm' -> 'K75'), "
+            "hãy thử lại với 1 từ khóa ngắn gọn nhất từ bản nghe ASR còn lại. "
+            "(2) Nếu tìm món ăn nấu sẵn của quán (bún chả, bún bò, phở...) thì dùng food_delivery.list_restaurants({}); "
+            "nếu tìm đồ gia dụng/điện tử (cốc giữ nhiệt, đèn bàn, ấm siêu tốc...) thì dùng ecommerce.search!"
+        )
+    elif name in ("flights.search", "train_bus_tickets.search") and any(
+        isinstance(v, list) and len(v) == 0 for k, v in res.items() if not k.startswith("_")
+    ):
+        res["_system_note"] = (
+            "CHÚ Ý: Không tìm thấy chuyến đi! Hãy kiểm tra ngay: "
+            "(1) Nếu câu nói có số hiệu chuyến bay 'RV...' / 'JX...' / 'SA...' và 'sân bay' thì PHẢI dùng flights.search (KHÔNG dùng train_bus_tickets.search); "
+            "ngược lại tàu 'SE...' / 'NA...' dùng train_bus_tickets.search. "
+            "(2) Đối chiếu lại ngày trong Bảng ngày TUẦN NÀY vs TUẦN SAU và tên thành phố ở Bản nghe ASR 2!"
         )
     return res
 
@@ -247,7 +279,7 @@ def format_user_utterance(transcript_entry: dict[str, str]) -> str:
 def build_messages(
     sample: dict,
     transcript_map: dict[str, dict[str, str]],
-    max_history_turns: int = 12,
+    max_history_turns: int = 0,
 ) -> list[dict]:
     messages: list[dict] = [{"role": "system", "content": build_system_prompt(sample)}]
 
